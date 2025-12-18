@@ -59,6 +59,17 @@ Add the following to your `.env` file:
 - `BEARER_TOKEN` - Your IPRN API bearer token
 - `ADMIN_CHANNEL_ID` - Your admin channel ID for notifications (optional)
 
+#### Getting the Admin Channel ID:
+
+1. Create a channel or use an existing one
+2. Add your bot to the channel as an administrator with "Post Messages" permission
+3. Get the channel ID:
+   - For channels/supergroups: Use [@raw_data_bot](https://t.me/raw_data_bot) or similar bots to get the ID (format: `-100XXXXXXXXXX`)
+   - The ID should be a negative number (e.g., `-1003362423487`)
+4. Add the numeric ID to your `.env` file: `ADMIN_CHANNEL_ID=-1003362423487`
+
+**Note**: The bot must be added to the channel as an admin with posting permissions before it can send notifications.
+
 ### 4. Start the Bot
 
 ```bash
@@ -216,9 +227,24 @@ responses = {
 
 ### Admin notifications not working
 
-1. Verify `ADMIN_CHANNEL_ID` is correctly set in `.env`
-2. Ensure the bot is added to the admin channel as an administrator
-3. Check that the channel ID format is correct (e.g., `-100XXXXXXXXXX` for channels)
+If you see "Chat not found" or HTTP 400 errors:
+
+1. **Verify Channel ID Format**: Must be a numeric value (e.g., `-1003362423487`)
+   - For channels/supergroups, the ID starts with `-100`
+   - Use [@raw_data_bot](https://t.me/raw_data_bot) to get the correct ID
+2. **Add Bot to Channel**: 
+   - Go to your channel settings
+   - Add the bot as an administrator
+   - Grant "Post Messages" permission (required for notifications)
+3. **Test the Setup**:
+   - Send a test message to the bot
+   - Check logs: `./manage.sh logs`
+   - Verify the channel ID in `.env` matches the actual channel
+4. **Common Issues**:
+   - Bot not added to channel = "Chat not found" error
+   - Bot not an admin = "Forbidden" error
+   - Wrong channel ID = "Chat not found" error
+   - Channel ID as string instead of number = Fixed automatically in code
 
 ### Autostart not working
 

@@ -39,6 +39,13 @@ if not BEARER_TOKEN:
     raise ValueError("BEARER_TOKEN environment variable is not set!")
 if not ADMIN_CHANNEL_ID:
     logger.warning("ADMIN_CHANNEL_ID not set - admin notifications will be disabled")
+else:
+    # Convert to integer for proper Telegram API usage
+    try:
+        ADMIN_CHANNEL_ID = int(ADMIN_CHANNEL_ID)
+    except ValueError:
+        logger.error(f"ADMIN_CHANNEL_ID must be a numeric value, got: {ADMIN_CHANNEL_ID}")
+        ADMIN_CHANNEL_ID = None
 
 # API endpoint for fetching SMS
 API_ENDPOINT = "https://api.iprn.pro/api/public/v1/stock/edr-account"
@@ -189,7 +196,16 @@ async def send_admin_notification(context: ContextTypes.DEFAULT_TYPE, user_info:
         logger.info(f"Admin notification sent for user {user_id}")
     except Exception as e:
         # Log at WARNING level since this affects monitoring
-        logger.warning(f"Failed to send admin notification: {e}. Notification delivery failed but bot continues operation.")
+        error_msg = str(e)
+        if "Chat not found" in error_msg or "chat not found" in error_msg.lower():
+            logger.warning(
+                f"Failed to send admin notification: Chat not found (Channel ID: {ADMIN_CHANNEL_ID}). "
+                f"Please verify: 1) The bot is added to the channel, 2) The bot has admin rights with 'Post Messages' permission, "
+                f"3) The channel ID is correct (should be -100XXXXXXXXXX for supergroups/channels). "
+                f"Notification delivery failed but bot continues operation."
+            )
+        else:
+            logger.warning(f"Failed to send admin notification: {e}. Notification delivery failed but bot continues operation.")
 
 
 def get_sms_keyboard(phone_number: str) -> InlineKeyboardMarkup:
