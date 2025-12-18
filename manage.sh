@@ -69,7 +69,7 @@ install() {
     # Activate virtual environment and install dependencies
     print_info "Installing Python dependencies..."
     source "$VENV_DIR/bin/activate"
-    pip install --upgrade pip > /dev/null 2>&1
+    pip install --upgrade pip
     pip install -r "$BOT_DIR/requirements.txt"
     deactivate
     print_success "Dependencies installed"
@@ -121,8 +121,12 @@ start() {
         exit 1
     fi
     
-    # Export environment variables from .env
-    export $(cat "$BOT_DIR/.env" | grep -v '^#' | xargs)
+    # Load environment variables from .env file safely
+    if [ -f "$BOT_DIR/.env" ]; then
+        set -a
+        source "$BOT_DIR/.env"
+        set +a
+    fi
     
     # Start the bot in background
     source "$VENV_DIR/bin/activate"

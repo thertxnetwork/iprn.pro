@@ -5,6 +5,7 @@ Simple Telegram Bot with Inline Keyboard Menu
 
 import os
 import logging
+from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -12,6 +13,9 @@ from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
 )
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -27,8 +31,8 @@ if not BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set!")
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message with inline keyboard when the /start command is issued."""
+def get_main_keyboard() -> InlineKeyboardMarkup:
+    """Create and return the main inline keyboard menu."""
     keyboard = [
         [
             InlineKeyboardButton("📊 Status", callback_data='status'),
@@ -42,7 +46,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             InlineKeyboardButton("🔄 Refresh Menu", callback_data='refresh'),
         ],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send a message with inline keyboard when the /start command is issued."""
+    reply_markup = get_main_keyboard()
     
     welcome_text = (
         "👋 Welcome to the IPRN Bot!\n\n"
@@ -88,21 +97,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     response_text = responses.get(action, "Unknown action")
     
-    # Create the same keyboard for navigation
-    keyboard = [
-        [
-            InlineKeyboardButton("📊 Status", callback_data='status'),
-            InlineKeyboardButton("ℹ️ Info", callback_data='info'),
-        ],
-        [
-            InlineKeyboardButton("⚙️ Settings", callback_data='settings'),
-            InlineKeyboardButton("❓ Help", callback_data='help'),
-        ],
-        [
-            InlineKeyboardButton("🔄 Refresh Menu", callback_data='refresh'),
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Get the main keyboard for navigation
+    reply_markup = get_main_keyboard()
     
     # Edit the message with new text and same keyboard
     await query.edit_message_text(text=response_text, reply_markup=reply_markup)
@@ -110,20 +106,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send the menu again."""
-    keyboard = [
-        [
-            InlineKeyboardButton("📊 Status", callback_data='status'),
-            InlineKeyboardButton("ℹ️ Info", callback_data='info'),
-        ],
-        [
-            InlineKeyboardButton("⚙️ Settings", callback_data='settings'),
-            InlineKeyboardButton("❓ Help", callback_data='help'),
-        ],
-        [
-            InlineKeyboardButton("🔄 Refresh Menu", callback_data='refresh'),
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = get_main_keyboard()
     
     await update.message.reply_text(
         "📋 Main Menu - Select an option:",
