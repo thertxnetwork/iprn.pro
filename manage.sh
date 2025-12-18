@@ -123,9 +123,8 @@ start() {
     
     # Load environment variables from .env file safely
     if [ -f "$BOT_DIR/.env" ]; then
-        set -a
-        source "$BOT_DIR/.env"
-        set +a
+        # Export variables without sourcing (which could execute commands)
+        export $(grep -v '^#' "$BOT_DIR/.env" | grep -v '^[[:space:]]*$' | xargs -d '\n')
     fi
     
     # Start the bot in background
