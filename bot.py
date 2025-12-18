@@ -5,6 +5,7 @@ Simple Telegram Bot with Inline Keyboard Menu
 
 import os
 import logging
+import re
 import httpx
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -42,6 +43,9 @@ if not ADMIN_CHANNEL_ID:
 # API endpoint for fetching SMS
 API_ENDPOINT = "https://api.iprn.pro/api/public/v1/stock/edr-account"
 
+# Create a reusable HTTP client for better performance
+http_client = httpx.AsyncClient(timeout=30.0)
+
 
 def get_main_keyboard() -> InlineKeyboardMarkup:
     """Create and return the main inline keyboard menu."""
@@ -76,20 +80,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def fetch_sms_data(phone_number: str) -> dict:
     """Fetch SMS data from the API for a given phone number."""
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            headers = {
-                "Authorization": f"Bearer {BEARER_TOKEN}"
-            }
-            params = {
-                "type": "sms",
-                "b_number": phone_number
-            }
-            response = await client.get(API_ENDPOINT, headers=headers, params=params)
-            response.raise_for_status()
-            return response.json()
+        headers = {
+            "Authorization": f"Bearer {BEARER_TOKEN}"
+        }
+        params = {
+            "type": "sms",
+            "b_number": phone_number
+        }
+        response = await http_client.get(API_ENDPOINT, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error fetching SMS data: {e.response.status_code} - {e.response.text}")
+        if e.response.status_code == 401:
+            return {"error": "Authentication failed. Please check your Bearer token."}
+        elif e.response.status_code == 404:
+            return {"error": "API endpoint not found."}
+        else:
+            return {"error": f"API error: {e.response.status_code}"}
+    except httpx.RequestError as e:
+        logger.error(f"Network error fetching SMS data: {e}")
+        return {"error": "Network error. Please check your connection and try again."}
     except Exception as e:
-        logger.error(f"Error fetching SMS data: {e}")
-        return {"error": str(e)}
+        logger.error(f"Unexpected error fetching SMS data: {e}")
+        return {"error": f"Unexpected error: {str(e)}"}
 
 
 def format_sms_message(sms_data: dict) -> str:
@@ -105,6 +119,7 @@ def format_sms_message(sms_data: dict) -> str:
     # Format each SMS message
     messages = []
     for idx, sms in enumerate(data, 1):
+        # Note: a_number is shown as "Service" per requirements to hide actual sender
         msg_text = (
             f"📨 **Message {idx}**\n"
             f"━━━━━━━━━━━━━━━━\n"
@@ -124,6 +139,7 @@ def format_sms_message(sms_data: dict) -> str:
 async def send_admin_notification(context: ContextTypes.DEFAULT_TYPE, user_info: dict, sms_data: dict, phone_number: str) -> None:
     """Send notification to admin channel about SMS fetch."""
     if not ADMIN_CHANNEL_ID:
+        logger.debug("Admin notifications disabled (ADMIN_CHANNEL_ID not set)")
         return
     
     try:
@@ -172,7 +188,8 @@ async def send_admin_notification(context: ContextTypes.DEFAULT_TYPE, user_info:
         )
         logger.info(f"Admin notification sent for user {user_id}")
     except Exception as e:
-        logger.error(f"Failed to send admin notification: {e}")
+        # Log at WARNING level since this affects monitoring
+        logger.warning(f"Failed to send admin notification: {e}. Notification delivery failed but bot continues operation.")
 
 
 def get_sms_keyboard(phone_number: str) -> InlineKeyboardMarkup:
@@ -286,15 +303,20 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Handle text messages from users."""
     message_text = update.message.text.strip()
     
-    # Check if the message is a number (phone number)
-    if message_text.isdigit():
+    # Check if the message looks like a phone number
+    # Accepts formats: 1234567890, +1234567890, +1 234 567 890, (123) 456-7890, etc.
+    phone_pattern = r'^[\+]?[\d\s\-\(\)]+$'
+    if re.match(phone_pattern, message_text) and len(re.sub(r'[^\d]', '', message_text)) >= 7:
+        # Extract only digits for API call
+        phone_number = re.sub(r'[^\d]', '', message_text)
+        
         # Send a loading message
         loading_msg = await update.message.reply_text("🔍 Fetching SMS data...")
         
         # Fetch SMS data
-        sms_data = await fetch_sms_data(message_text)
+        sms_data = await fetch_sms_data(phone_number)
         formatted_message = format_sms_message(sms_data)
-        reply_markup = get_sms_keyboard(message_text)
+        reply_markup = get_sms_keyboard(phone_number)
         
         # Send admin notification
         user_info = {
@@ -303,7 +325,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             'first_name': update.effective_user.first_name,
             'last_name': update.effective_user.last_name,
         }
-        await send_admin_notification(context, user_info, sms_data, message_text)
+        await send_admin_notification(context, user_info, sms_data, phone_number)
         
         # Update the loading message with the results
         await loading_msg.edit_text(
@@ -312,10 +334,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parse_mode='Markdown'
         )
     else:
-        # If not a number, provide help
+        # If not a phone number, provide help
         await update.message.reply_text(
             "ℹ️ Please send a phone number to view SMS messages.\n"
-            "Example: 37498316061\n\n"
+            "Example: 37498316061 or +374 98 316061\n\n"
             "Or use /start to see the main menu."
         )
 
