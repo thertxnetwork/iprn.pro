@@ -1,11 +1,14 @@
 # IPRN Telegram Bot
 
-A simple Telegram bot with inline keyboard menu functionality, built with Python and the `python-telegram-bot` library.
+A Telegram bot with inline keyboard menu functionality and SMS fetching capabilities, built with Python and the `python-telegram-bot` library.
 
 ## Features
 
 - 🤖 Simple and intuitive inline keyboard menu
+- 📱 SMS fetching by phone number
 - 📊 Status, Info, Settings, and Help menu options
+- 🔄 Refresh button to re-fetch SMS data
+- 🔔 Admin notifications for SMS fetches
 - 🔄 Easy management with `manage.sh` script
 - 🚀 Systemd integration for autostart
 - 📝 Comprehensive logging
@@ -16,6 +19,8 @@ A simple Telegram bot with inline keyboard menu functionality, built with Python
 - Python 3.7 or higher
 - pip (Python package installer)
 - A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
+- Bearer Token for IPRN API access
+- Admin Channel ID for notifications (optional)
 - Linux system with systemd (for autostart feature)
 
 ## Quick Start
@@ -43,13 +48,16 @@ cd iprn.pro
 # Copy the example environment file
 cp .env.example .env
 
-# Edit the .env file and add your bot token
+# Edit the .env file and add your credentials
 nano .env
 # or
 vim .env
 ```
 
-Replace `your_bot_token_here` with your actual bot token from BotFather.
+Add the following to your `.env` file:
+- `TELEGRAM_BOT_TOKEN` - Your bot token from BotFather
+- `BEARER_TOKEN` - Your IPRN API bearer token
+- `ADMIN_CHANNEL_ID` - Your admin channel ID for notifications (optional)
 
 ### 4. Start the Bot
 
@@ -118,6 +126,14 @@ Once the bot is running, you can interact with it on Telegram:
 - `/menu` - Show the menu again
 - `/help` - Display help information
 
+### SMS Fetching
+
+Simply send a phone number (e.g., `37498316061`) to the bot, and it will:
+1. Fetch SMS messages for that number from the IPRN API
+2. Display the messages with details (date, status, destination, message body)
+3. Provide a refresh button to fetch the latest messages
+4. Send a notification to the admin channel (if configured)
+
 ### Inline Keyboard Menu
 
 The bot provides an interactive inline keyboard with the following options:
@@ -127,6 +143,14 @@ The bot provides an interactive inline keyboard with the following options:
 - **⚙️ Settings** - Access settings menu (customizable)
 - **❓ Help** - Display help and available commands
 - **🔄 Refresh Menu** - Refresh the main menu
+
+### Admin Notifications
+
+When a user fetches SMS data, the bot sends a notification to the configured admin channel with:
+- User information (ID, name, username)
+- Phone number queried
+- SMS count and details (without message body)
+- Timestamp
 
 ## Project Structure
 
@@ -180,7 +204,21 @@ responses = {
 
 1. Check logs for errors: `./manage.sh logs`
 2. Verify network connectivity
-3. Check if the bot token is still valid
+3. Check if the bot token and bearer token are still valid
+4. Verify the API endpoint is accessible
+
+### SMS not fetching
+
+1. Verify `BEARER_TOKEN` is correctly set in `.env`
+2. Check if the phone number format is correct
+3. Verify API endpoint is accessible: `https://api.iprn.pro/api/public/v1/stock/edr-account`
+4. Check logs for API errors: `./manage.sh logs`
+
+### Admin notifications not working
+
+1. Verify `ADMIN_CHANNEL_ID` is correctly set in `.env`
+2. Ensure the bot is added to the admin channel as an administrator
+3. Check that the channel ID format is correct (e.g., `-100XXXXXXXXXX` for channels)
 
 ### Autostart not working
 
@@ -202,10 +240,12 @@ sudo ./manage.sh autostart
 
 ## Security Notes
 
-- Never commit your `.env` file or bot token to version control
+- Never commit your `.env` file or tokens to version control
 - The `.env` file is already included in `.gitignore`
-- Keep your bot token secure and don't share it publicly
+- Keep your bot token, bearer token, and admin channel ID secure
+- Don't share tokens or credentials publicly
 - Regularly update dependencies: `./manage.sh install`
+- Admin notifications don't include SMS message bodies for privacy
 
 ## Requirements
 
@@ -213,6 +253,7 @@ See `requirements.txt` for Python dependencies:
 
 - `python-telegram-bot` - Telegram Bot API wrapper
 - `python-dotenv` - Environment variable management
+- `httpx` - HTTP client for API requests
 
 ## License
 
