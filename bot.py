@@ -28,15 +28,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Get bot token and API bearer token from environment variables
+# Get bot token and API credentials from environment variables
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BEARER_TOKEN = os.getenv('BEARER_TOKEN')
 ADMIN_CHANNEL_ID = os.getenv('ADMIN_CHANNEL_ID')
 
+# API login credentials
+API_ACCOUNT_GROUP = os.getenv('API_ACCOUNT_GROUP', 'iprnpro')
+API_EMAIL = os.getenv('API_EMAIL')
+API_PASSWORD = os.getenv('API_PASSWORD')
+
 if not BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set!")
 if not BEARER_TOKEN:
-    raise ValueError("BEARER_TOKEN environment variable is not set!")
+    logger.warning("BEARER_TOKEN not set - will try to login with credentials if provided")
+if not API_EMAIL or not API_PASSWORD:
+    if not BEARER_TOKEN:
+        raise ValueError("Either BEARER_TOKEN or (API_EMAIL and API_PASSWORD) must be set!")
+    logger.warning("API_EMAIL and API_PASSWORD not set - token refresh will not be available")
+
 if not ADMIN_CHANNEL_ID:
     logger.warning("ADMIN_CHANNEL_ID not set - admin notifications will be disabled")
 else:
@@ -47,11 +57,15 @@ else:
         logger.error(f"ADMIN_CHANNEL_ID must be a numeric value, got: {ADMIN_CHANNEL_ID}")
         ADMIN_CHANNEL_ID = None
 
-# API endpoint for fetching SMS
+# API endpoints
 API_ENDPOINT = "https://api.iprn.pro/api/public/v1/stock/edr-account"
+API_LOGIN_ENDPOINT = "https://api.iprn.pro/api/public/v1/stock/login"
 
 # Create a reusable HTTP client for better performance
 http_client = httpx.AsyncClient(timeout=30.0)
+
+# Global variable to store the current bearer token
+current_bearer_token = BEARER_TOKEN
 
 
 def get_main_keyboard() -> InlineKeyboardMarkup:
@@ -84,23 +98,101 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
 
-async def fetch_sms_data(phone_number: str) -> dict:
+async def refresh_bearer_token() -> bool:
+    """
+    Refresh the bearer token by logging in to the API.
+    Returns True if successful, False otherwise.
+    """
+    global current_bearer_token
+    
+    if not API_EMAIL or not API_PASSWORD:
+        logger.error("Cannot refresh token: API_EMAIL or API_PASSWORD not set")
+        return False
+    
+    try:
+        logger.info("Attempting to refresh bearer token...")
+        login_data = {
+            "account_group": API_ACCOUNT_GROUP,
+            "email": API_EMAIL,
+            "password": API_PASSWORD
+        }
+        
+        response = await http_client.post(
+            API_LOGIN_ENDPOINT,
+            json=login_data,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            }
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        if "access_token" in data:
+            # Extract the token (format: "128621|fAFWiR5z2moso2HIBT7qUr0H3gtMLclkQ9m6O5NXbcc39050")
+            new_token = data["access_token"]
+            current_bearer_token = new_token
+            logger.info(f"Bearer token refreshed successfully. Expires at: {data.get('expires_at', 'unknown')}")
+            return True
+        else:
+            logger.error(f"Login successful but no access_token in response: {data}")
+            return False
+            
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error during token refresh: {e.response.status_code} - {e.response.text}")
+        return False
+    except httpx.RequestError as e:
+        logger.error(f"Network error during token refresh: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error during token refresh: {e}")
+        return False
+
+
+async def fetch_sms_data(phone_number: str, retry_on_auth_error: bool = True) -> dict:
     """Fetch SMS data from the API for a given phone number."""
+    global current_bearer_token
+    
     try:
         headers = {
-            "Authorization": f"Bearer {BEARER_TOKEN}"
+            "Authorization": f"Bearer {current_bearer_token}"
         }
         params = {
             "type": "sms",
             "b_number": phone_number
         }
         response = await http_client.get(API_ENDPOINT, headers=headers, params=params)
+        
+        # Check for HTML response (indicating auth failure even with 200 status)
+        content_type = response.headers.get("content-type", "")
+        if response.status_code == 200 and "text/html" in content_type:
+            logger.warning("Received HTML response instead of JSON (likely auth failure)")
+            if retry_on_auth_error and await refresh_bearer_token():
+                logger.info("Token refreshed, retrying SMS fetch...")
+                return await fetch_sms_data(phone_number, retry_on_auth_error=False)
+            return {"error": "Authentication failed. Unable to refresh token."}
+        
+        # Check for 302 redirect (also indicates auth failure)
+        if response.status_code == 302:
+            logger.warning("Received 302 redirect (auth failure)")
+            if retry_on_auth_error and await refresh_bearer_token():
+                logger.info("Token refreshed, retrying SMS fetch...")
+                return await fetch_sms_data(phone_number, retry_on_auth_error=False)
+            return {"error": "Authentication failed. Unable to refresh token."}
+        
         response.raise_for_status()
         return response.json()
+        
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP error fetching SMS data: {e.response.status_code} - {e.response.text}")
+        
+        # Handle 401 Unauthorized
         if e.response.status_code == 401:
-            return {"error": "Authentication failed. Please check your Bearer token."}
+            if retry_on_auth_error and await refresh_bearer_token():
+                logger.info("Token refreshed after 401, retrying SMS fetch...")
+                return await fetch_sms_data(phone_number, retry_on_auth_error=False)
+            return {"error": "Authentication failed. Please check your credentials."}
         elif e.response.status_code == 404:
             return {"error": "API endpoint not found."}
         else:

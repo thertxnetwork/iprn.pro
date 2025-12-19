@@ -9,6 +9,7 @@ A Telegram bot with inline keyboard menu functionality and SMS fetching capabili
 - 📊 Status, Info, Settings, and Help menu options
 - 🔄 Refresh button to re-fetch SMS data
 - 🔔 Admin notifications for SMS fetches
+- 🔑 Automatic bearer token refresh on authentication failures
 - 🔄 Easy management with `manage.sh` script
 - 🚀 Systemd integration for autostart
 - 📝 Comprehensive logging
@@ -19,7 +20,7 @@ A Telegram bot with inline keyboard menu functionality and SMS fetching capabili
 - Python 3.7 or higher
 - pip (Python package installer)
 - A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
-- Bearer Token for IPRN API access
+- IPRN API credentials (email and password) OR Bearer Token
 - Admin Channel ID for notifications (optional)
 - Linux system with systemd (for autostart feature)
 
@@ -55,9 +56,24 @@ vim .env
 ```
 
 Add the following to your `.env` file:
+
+**Required:**
 - `TELEGRAM_BOT_TOKEN` - Your bot token from BotFather
-- `BEARER_TOKEN` - Your IPRN API bearer token
-- `ADMIN_CHANNEL_ID` - Your admin channel ID for notifications (optional)
+
+**For API Access (choose one method):**
+
+*Method 1: Using Login Credentials (Recommended - enables automatic token refresh)*
+- `API_EMAIL` - Your IPRN account email
+- `API_PASSWORD` - Your IPRN account password
+- `API_ACCOUNT_GROUP` - Account group (default: `iprnpro`)
+
+*Method 2: Using Bearer Token (Manual)*
+- `BEARER_TOKEN` - Your IPRN API bearer token (format: `128621|token_here`)
+
+**Optional:**
+- `ADMIN_CHANNEL_ID` - Your admin channel ID for notifications
+
+**Note**: If you use Method 1 (credentials), the bot will automatically refresh the bearer token when it expires or becomes unauthorized (401, 302, or HTML response). If you use Method 2 (manual token), you'll need to update it manually when it expires.
 
 #### Getting the Admin Channel ID:
 
@@ -220,10 +236,31 @@ responses = {
 
 ### SMS not fetching
 
-1. Verify `BEARER_TOKEN` is correctly set in `.env`
+1. **Check Authentication**:
+   - If using credentials: Verify `API_EMAIL` and `API_PASSWORD` are correct
+   - If using token: Verify `BEARER_TOKEN` is correctly set in `.env`
+   - Check logs for "Authentication failed" messages: `./manage.sh logs`
 2. Check if the phone number format is correct
 3. Verify API endpoint is accessible: `https://api.iprn.pro/api/public/v1/stock/edr-account`
 4. Check logs for API errors: `./manage.sh logs`
+
+### Authentication Errors (401, 302, HTML responses)
+
+The bot automatically handles authentication failures:
+
+1. **Automatic Token Refresh**: If `API_EMAIL` and `API_PASSWORD` are configured, the bot will automatically refresh the bearer token when:
+   - Receiving 401 Unauthorized
+   - Receiving 302 Redirect
+   - Receiving 200 OK with HTML content (instead of JSON)
+2. **Check Logs**: Look for "Token refreshed successfully" messages in logs
+3. **Manual Token Update**: If automatic refresh fails, you can manually update `BEARER_TOKEN` in `.env`:
+   ```bash
+   curl -X POST 'https://api.iprn.pro/api/public/v1/stock/login' \
+     -H 'Content-Type: application/json' \
+     -d '{"account_group":"iprnpro","email":"your_email","password":"your_password"}'
+   ```
+   Copy the `access_token` from the response to `BEARER_TOKEN` in `.env`
+4. **Restart Bot**: After updating credentials, restart: `./manage.sh restart`
 
 ### Admin notifications not working
 
